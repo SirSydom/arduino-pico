@@ -136,6 +136,7 @@ void SerialUART::begin(unsigned long baud, uint16_t config) {
         irq_set_enabled(UART1_IRQ, true);
     }
     uart_get_hw(_uart)->imsc |= UART_UARTIMSC_RXIM_BITS | UART_UARTIMSC_RTIM_BITS;
+    uart_get_hw(_uart)->ifls &= ~UART_UARTIFLS_RXIFLSEL_BITS;
     _running = true;
 }
 
@@ -174,6 +175,19 @@ int SerialUART::read() {
         _reader = (_reader + 1) % _fifoSize;
         return ret;
     }
+    else {
+		// if the RAM-FIFO is empty, there may be some bytes in the HW-FIFO that not reached the trigger point yet.
+		// if that is the case, read is likely called high frequency and the user can afford it. If it's empty, it's cheap anyway.
+		if(uart_is_readable(_uart)) {
+			//noInterrupts();				// maybe there is a better solution to prevent _handleIRQ called at THIS moment any maybe scramble bytes around.
+			irq_set_enabled(_uart == uart0 ? UART0_IRQ : UART1_IRQ, false);	// this could be one
+			char c = uart_getc(_uart);
+			irq_set_enabled(_uart == uart0 ? UART0_IRQ : UART1_IRQ, true);
+			//interrupts();
+			// think about what is happening when _handleIRQ is triggered at this point - can the bytes somehow overtake "c" with serialevent ?
+			return c;
+        }
+	}
     return -1;
 }
 
